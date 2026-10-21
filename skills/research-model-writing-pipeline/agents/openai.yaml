@@ -1,0 +1,5 @@
+interface:
+  display_name: "实证研究模型与写作三环节"
+  short_description: "连接研究空白、回归建模核验和模型部分写作"
+  default_prompt: "Use $research-model-writing-pipeline to work through the requested stage of my empirical research project."
+

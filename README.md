@@ -33,8 +33,13 @@ $research-gap-dual-agent
 
 输出须列明当次实际调用的工具和检索日期。OpenAlex 与 Crossref 提供的是书目元数据；候选空白需要继续查重，不能把“本轮未见”写成“从未有人研究”。
 
+## 验证
+
+安装依赖后，在仓库根目录运行 `python -m unittest discover -s tests`。仓库包含 5 项测试，覆盖结果整理、DOI 核对和 MCP 工具注册。2026 年 10 月 21 日，本地测试全部通过，Crossref 的 DOI 查询和书目检索也经实际 API 请求验证。当前执行环境访问 OpenAlex 时发生 TLS 连接超时，因此 OpenAlex 工具通过模拟响应测试，尚未完成在线联调；使用前应在自己的网络环境运行一次实际检索。
+
 ## 数据来源与许可
 
 - [OpenAlex API 文档](https://help.openalex.org/api/)：研究作品搜索与元数据。
 - [Crossref REST API 文档](https://www.crossref.org/documentation/retrieve-metadata/rest-api/)：作品检索与 DOI 注册元数据。
 - 本项目代码采用 [MIT License](LICENSE)。
+

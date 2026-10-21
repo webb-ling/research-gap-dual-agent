@@ -1,3 +1,0 @@
-interface:
-  display_name: "研究空白识别双 Agent"
-  short_description: "检索文献、独立核验来源并提出候选研究空白"

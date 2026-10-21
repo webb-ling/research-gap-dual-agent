@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -57,7 +59,29 @@ class MetadataToolsTests(unittest.TestCase):
             self.assertFalse(server.lookup_crossref_doi_data("not-a-doi")["ok"])
         fetch.assert_not_called()
 
-    def test_mcp_advertises_three_read_only_tools(self):
+    def test_csv_profiles_and_group_counts_without_returning_rows(self):
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / "sample.csv"
+            path.write_text("phone,rural,pay\nsmart,0,1\nbasic,1,0\nsmart,1,1\nsmart,,0\n", encoding="utf-8")
+            profile = server.profile_csv_variables_data(str(path), ["phone", "rural", "pay"])
+            cells = server.count_group_cells_data(str(path), ["phone", "rural", "pay"])
+        self.assertEqual(profile["columns"]["rural"]["missing"], 1)
+        self.assertEqual(profile["columns"]["phone"]["value_counts_if_10_or_fewer_levels"]["smart"], 3)
+        self.assertEqual(cells["incomplete_rows"], 1)
+        self.assertEqual(sum(cell["count"] for cell in cells["cells"]), 3)
+        self.assertNotIn("smart,0,1", json.dumps(profile))
+
+    def test_model_plan_flags_missing_moderator_and_nonbinary_logit(self):
+        plan = {"research_question": "Does association differ by area?", "data_source": "survey",
+                "sample": "eligible adults", "outcome": {"name": "payment", "type": "continuous"},
+                "exposure": "phone", "model_family": "Logit", "interaction": True,
+                "estimand": "conditional association", "interpretation_plan": "predicted probabilities"}
+        result = server.check_model_plan_data(json.dumps(plan))
+        self.assertEqual(result["status"], "needs_revision")
+        self.assertEqual(len(result["consistency_issues"]), 2)
+        self.assertTrue(any("moderator" in issue for issue in result["consistency_issues"]))
+
+    def test_mcp_advertises_six_read_only_tools(self):
         from mcp import Client
 
         async def inspect():
@@ -68,8 +92,11 @@ class MetadataToolsTests(unittest.TestCase):
         self.assertEqual(asyncio.run(inspect()), {
             "search_openalex": True, "search_crossref": True,
             "lookup_crossref_doi": True,
+            "profile_csv_variables": True, "count_group_cells": True,
+            "check_model_plan": True,
         })
 
 
 if __name__ == "__main__":
     unittest.main()
+

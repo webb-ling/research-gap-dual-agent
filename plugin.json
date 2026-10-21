@@ -1,0 +1,20 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "research-gap-dual-agent",
+  "version": "1.0.0",
+  "description": "A two-agent research-gap workflow with live OpenAlex search and Crossref metadata tools.",
+  "repository": "https://github.com/webb-ling/research-gap-dual-agent",
+  "license": "MIT",
+  "keywords": ["research", "literature-search", "citation-verification"],
+  "extensions": {
+    "com.openai": {
+      "requires_local_executor": true,
+      "interface": {
+        "displayName": "Research Gap Dual Agent",
+        "shortDescription": "Literature search and independent citation checks",
+        "developerName": "webb-ling",
+        "category": "Productivity"
+      }
+    }
+  }
+}

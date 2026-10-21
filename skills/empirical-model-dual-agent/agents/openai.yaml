@@ -1,0 +1,5 @@
+interface:
+  display_name: "实证模型建立与核验双 Agent"
+  short_description: "修订回归模型并独立检查变量、样本和解释"
+  default_prompt: "Use $empirical-model-dual-agent to review my initial empirical model and produce a checked revision."
+

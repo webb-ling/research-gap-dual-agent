@@ -3,7 +3,7 @@
   "name": "research-model-writing-pipeline",
   "version": "2.0.0",
   "description": "Three-stage empirical research workflow: literature gap, regression model review, and model-section writing.",
-  "repository": "https://github.com/webb-ling/research-gap-dual-agent",
+  "repository": "https://github.com/webb-ling/research-model-writing-pipeline",
   "license": "MIT",
   "keywords": ["research", "literature-search", "regression-model", "academic-writing"],
   "extensions": {

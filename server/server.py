@@ -18,7 +18,7 @@ from mcp.types import ToolAnnotations
 
 
 mcp = MCPServer("research-workflow-tools")
-USER_AGENT = "research-gap-dual-agent/1.0 (scholarly metadata; https://github.com/webb-ling/research-gap-dual-agent)"
+USER_AGENT = "research-model-writing-pipeline/2.0 (scholarly metadata; https://github.com/webb-ling/research-model-writing-pipeline)"
 
 
 def _fetch_json(url: str) -> dict:

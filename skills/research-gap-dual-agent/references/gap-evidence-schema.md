@@ -32,5 +32,5 @@
 }
 ```
 
-`search_log` 的 `page` 必须是正整数，`returned_count` 和 `screened_count` 必须是非负整数。`original_url` 必须是带主机名的 `http(s)` URL。`verification_status` 可填 `passed`、`needs_revision` 或 `unconfirmed`；总体标为 `passed` 时，所有最接近研究都须标为 `passed`，否则返回一致性问题。只有核验 Agent 实际打开并核对原始材料后，才可将该研究标为 `passed`。工具返回 `required_fields_present` 仅代表结构完整，绝不代表证据已通过核验。
+`search_log` 的 `searched_at_utc` 使用 `YYYY-MM-DD` 日期；`page` 必须是正整数，`returned_count` 和 `screened_count` 必须是非负整数。`original_url` 必须是带主机名的 `http(s)` URL。`verification_status` 可填 `passed`、`needs_revision` 或 `unconfirmed`；总体标为 `passed` 时，所有最接近研究都须标为 `passed`，否则返回一致性问题。只有核验 Agent 实际打开并核对原始材料后，才可将该研究标为 `passed`。工具返回 `required_fields_present` 仅代表结构完整，绝不代表证据已通过核验。
 

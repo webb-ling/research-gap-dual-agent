@@ -16,7 +16,7 @@ from urllib.request import Request, urlopen
 
 
 USER_AGENT = (
-    "research-model-writing-pipeline/2.2 "
+    "research-model-writing-pipeline/2.2.1 "
     "(scholarly metadata; https://github.com/webb-ling/research-model-writing-pipeline)"
 )
 MAX_SEARCH_WINDOW = 10_000
@@ -66,14 +66,15 @@ def _search_meta(source: str, query: str, page: int, limit: int, total: int | No
 def _authors_from_openalex(work: dict) -> list[str]:
     return [
         name for entry in work.get("authorships", [])
-        if (name := (entry.get("author") or {}).get("display_name"))
+        if (name := (entry.get("author") or {}).get("display_name") or entry.get("raw_author_name"))
     ]
 
 
 def _authors_from_crossref(work: dict) -> list[str]:
     return [
         name for author in work.get("author", [])
-        if (name := " ".join(filter(None, (author.get("given"), author.get("family")))))
+        if (name := " ".join(filter(None, (author.get("given"), author.get("family"))))
+            or author.get("literal"))
     ]
 
 
@@ -169,6 +170,15 @@ def deduplicate_works(records: list[dict]) -> list[dict]:
 
     def merge_into(index: int, record: dict) -> None:
         existing = merged[index]
+        if _normalized_doi(existing.get("doi")) and _normalized_doi(existing.get("doi")) == _normalized_doi(record.get("doi")):
+            for field in ("title", "year"):
+                old, new = existing.get(field), record.get(field)
+                if old is not None and new is not None and (
+                    (_normalized_title(old) != _normalized_title(new)) if field == "title" else old != new
+                ):
+                    existing.setdefault("metadata_conflicts", []).append(
+                        {"field": field, "first_value": old, "other_value": new}
+                    )
         for source in record.pop("sources", []):
             if source not in existing["sources"]:
                 existing["sources"].append(source)
@@ -229,6 +239,7 @@ def search_literature_data(query: str, limit: int = 10, page: int = 1) -> dict:
         "ambiguous_deduplication_count": sum(
             work.get("deduplication_status") == "ambiguous_title_year_needs_review" for work in merged
         ),
+        "metadata_conflict_count": sum(bool(work.get("metadata_conflicts")) for work in merged),
         "results": merged,
         "note": "Only the requested page from each database was checked; total counts are not screened counts.",
     }
@@ -304,6 +315,13 @@ def check_gap_evidence_data(gap_json: str) -> dict:
             for field in ("database", "query", "searched_at_utc"):
                 if not _nonempty_text(entry.get(field)):
                     invalid.append(f"search_log[{index}].{field} is required")
+            date_text = entry.get("searched_at_utc")
+            if _nonempty_text(date_text):
+                try:
+                    if datetime.strptime(date_text, "%Y-%m-%d").date().isoformat() != date_text:
+                        raise ValueError("noncanonical date")
+                except ValueError:
+                    invalid.append(f"search_log[{index}].searched_at_utc must be YYYY-MM-DD")
             page = entry.get("page")
             if type(page) is not int or page < 1:
                 invalid.append(f"search_log[{index}].page must be a positive integer")
@@ -351,6 +369,8 @@ def _csv_request(
     csv_path: str, columns: list[str], max_rows: int,
     missing_values: dict[str, list[str]] | None, min_columns: int, max_columns: int,
 ) -> tuple[Path | None, dict | None, dict[str, set[str]] | None, int | None]:
+    if not isinstance(csv_path, str) or not csv_path.strip():
+        return None, {"ok": False, "error": "csv_path must be a nonempty absolute path"}, None, None
     if (
         not isinstance(columns, list)
         or not min_columns <= len(columns) <= max_columns
@@ -399,6 +419,13 @@ def _limit_note(truncated: bool) -> str:
     return "All data rows in the supplied file were checked."
 
 
+def _csv_header_error(reader: csv.DictReader) -> dict | None:
+    fields = reader.fieldnames or []
+    if not fields or any(not field or not field.strip() for field in fields) or len(set(fields)) != len(fields):
+        return {"ok": False, "error": "missing_blank_or_duplicate_csv_header"}
+    return None
+
+
 def profile_csv_variables_data(
     csv_path: str, columns: list[str], max_rows: int = 100000,
     missing_values: dict[str, list[str]] | None = None,
@@ -408,8 +435,10 @@ def profile_csv_variables_data(
     if error:
         return error
     try:
-        with path.open("r", encoding="utf-8-sig", errors="replace", newline="") as stream:
-            reader = csv.DictReader(stream)
+        with path.open("r", encoding="utf-8-sig", errors="strict", newline="") as stream:
+            reader = csv.DictReader(stream, strict=True)
+            if header_error := _csv_header_error(reader):
+                return header_error
             absent = [col for col in columns if col not in (reader.fieldnames or [])]
             if absent:
                 return {"ok": False, "error": "columns_not_found", "columns": absent}
@@ -423,6 +452,8 @@ def profile_csv_variables_data(
                 if checked == max_rows:
                     truncated = True
                     break
+                if None in row or any(value is None for value in row.values()):
+                    return {"ok": False, "error": "malformed_csv_row"}
                 checked += 1
                 for col in columns:
                     value = (row[col] or "").strip()
@@ -452,7 +483,7 @@ def profile_csv_variables_data(
                 "truncated_by_row_limit": truncated, "minimum_cell_count": threshold,
                 "columns": fields, "note": "Descriptive, unweighted counts only. " + _limit_note(truncated),
             }
-    except (OSError, csv.Error):
+    except (OSError, UnicodeError, csv.Error):
         return {"ok": False, "error": "csv_read_error"}
 
 
@@ -465,8 +496,10 @@ def count_group_cells_data(
     if error:
         return error
     try:
-        with path.open("r", encoding="utf-8-sig", errors="replace", newline="") as stream:
-            reader = csv.DictReader(stream)
+        with path.open("r", encoding="utf-8-sig", errors="strict", newline="") as stream:
+            reader = csv.DictReader(stream, strict=True)
+            if header_error := _csv_header_error(reader):
+                return header_error
             absent = [col for col in columns if col not in (reader.fieldnames or [])]
             if absent:
                 return {"ok": False, "error": "columns_not_found", "columns": absent}
@@ -477,6 +510,8 @@ def count_group_cells_data(
                 if checked == max_rows:
                     truncated = True
                     break
+                if None in row or any(value is None for value in row.values()):
+                    return {"ok": False, "error": "malformed_csv_row"}
                 checked += 1
                 values = tuple((row[col] or "").strip() for col in columns)
                 if any(value in codes[col] for col, value in zip(columns, values)):
@@ -497,7 +532,7 @@ def count_group_cells_data(
                 "minimum_cell_count": threshold, "cells_suppressed": suppressed,
                 "cells": cells, "note": "Unweighted complete-case counts. " + _limit_note(truncated),
             }
-    except (OSError, csv.Error):
+    except (OSError, UnicodeError, csv.Error):
         return {"ok": False, "error": "csv_read_error"}
 
 
@@ -567,6 +602,7 @@ def _formula_checks(plan: dict, controls: object, fixed_effects: object) -> tupl
         manual.append("outcome.name uses an alias or expression; verify model_formula manually")
 
     variables: set[str] = set()
+    main_effects: set[str] = set()
     interactions: set[frozenset[str]] = set()
     for term in right.split("+"):
         if term.strip() in ("0", "1"):
@@ -580,6 +616,10 @@ def _formula_checks(plan: dict, controls: object, fixed_effects: object) -> tupl
         if operator:
             variables.add(second.casefold())
             interactions.add(frozenset((first.casefold(), second.casefold())))
+            if operator == "*":
+                main_effects.update((first.casefold(), second.casefold()))
+        else:
+            main_effects.add(first.casefold())
     if _simple_name(exposure):
         if exposure.casefold() not in variables:
             issues.append("model_formula omits declared exposure")
@@ -588,6 +628,8 @@ def _formula_checks(plan: dict, controls: object, fixed_effects: object) -> tupl
     if plan.get("interaction") is True and _simple_name(moderator) and _simple_name(exposure):
         if frozenset((exposure.casefold(), moderator.casefold())) not in interactions:
             issues.append("interaction=true but model_formula omits the exposure-moderator interaction")
+        elif not {exposure.casefold(), moderator.casefold()} <= main_effects:
+            manual.append("interaction formula omits a separate main effect; justify this model choice")
     elif plan.get("interaction") is True:
         manual.append("interaction variable aliases need manual formula review")
     defined = {name.casefold() for name in (exposure, moderator) if _simple_name(name)}

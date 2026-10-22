@@ -63,6 +63,14 @@ class LiteratureTests(unittest.TestCase):
         self.assertTrue(result["results"][0]["year_needs_verification"])
         self.assertEqual(result["results"][0]["author_count"], 10)
 
+    def test_author_name_fallbacks_are_not_silently_dropped(self):
+        self.assertEqual(core._authors_from_openalex({"authorships": [
+            {"author": None, "raw_author_name": "Original Byline"}
+        ]}), ["Original Byline"])
+        self.assertEqual(core._authors_from_crossref({"author": [
+            {"literal": "Research Consortium"}
+        ]}), ["Research Consortium"])
+
     def test_combined_search_deduplicates_by_doi_and_title_year(self):
         openalex = {"ok": True, "results": [
             {"title": "Same Study", "year": 2024, "doi": "https://doi.org/10.1234/A"},
@@ -88,6 +96,17 @@ class LiteratureTests(unittest.TestCase):
             {"title": "Same Study", "year": 2024, "doi": "10.1234/b"},
         ]
         self.assertEqual(len(core.deduplicate_works(records)), 2)
+
+    def test_same_doi_conflicting_metadata_is_visible(self):
+        records = [
+            {"title": "First Title", "year": 2024, "doi": "https://doi.org/10.1234/a", "_source": "OpenAlex"},
+            {"title": "Other Title", "year": 2025, "doi": "10.1234/A", "_source": "Crossref"},
+        ]
+        merged = core.deduplicate_works(records)
+        self.assertEqual(len(merged), 1)
+        self.assertEqual(merged[0]["sources"], ["OpenAlex", "Crossref"])
+        self.assertEqual({item["field"] for item in merged[0]["metadata_conflicts"]},
+                         {"title", "year"})
 
     def test_doi_less_title_year_with_two_dois_stays_ambiguous_in_any_order(self):
         records = [
@@ -153,6 +172,9 @@ class LiteratureTests(unittest.TestCase):
                          "required_fields_present")
         gap["search_log"][0]["screened_count"] = 3
         self.assertTrue(core.check_gap_evidence_data(json.dumps(gap))["consistency_issues"])
+        gap["search_log"][0].update(screened_count=2, searched_at_utc="tomorrow")
+        self.assertTrue(any("searched_at_utc" in item for item in
+                            core.check_gap_evidence_data(json.dumps(gap))["invalid_fields"]))
 
 
 class ModelPlanTests(unittest.TestCase):
@@ -209,6 +231,10 @@ class ModelPlanTests(unittest.TestCase):
         plan["model_formula"] = "logit P(payment=1)=a+b1 rural"
         result = core.check_model_plan_data(json.dumps(plan))
         self.assertTrue(any("exposure" in item for item in result["consistency_issues"]))
+        plan["model_formula"] = "payment ~ phone:rural + age"
+        result = core.check_model_plan_data(json.dumps(plan))
+        self.assertEqual(result["status"], "requires_manual_review")
+        self.assertTrue(any("main effect" in item for item in result["manual_review_items"]))
 
     def test_ordered_and_multinomial_probit_are_not_binary_probit(self):
         plan = valid_plan()
@@ -236,6 +262,22 @@ class ModelPlanTests(unittest.TestCase):
 
 
 class CsvBoundaryTests(unittest.TestCase):
+    def test_duplicate_headers_and_invalid_utf8_are_rejected(self):
+        with tempfile.TemporaryDirectory() as approved:
+            duplicate = Path(approved) / "duplicate.csv"
+            duplicate.write_text("x,x\na,b\n", encoding="utf-8")
+            invalid = Path(approved) / "invalid.csv"
+            invalid.write_bytes(b"x\n\xff\n")
+            malformed = Path(approved) / "malformed.csv"
+            malformed.write_text("x,y\na\n", encoding="utf-8")
+            with patch.dict(os.environ, {"RESEARCH_DATA_DIR": approved}):
+                self.assertEqual(core.profile_csv_variables_data(str(duplicate), ["x"])["error"],
+                                 "missing_blank_or_duplicate_csv_header")
+                self.assertEqual(core.profile_csv_variables_data(str(invalid), ["x"])["error"],
+                                 "csv_read_error")
+                self.assertEqual(core.count_group_cells_data(str(malformed), ["x", "y"])["error"],
+                                 "malformed_csv_row")
+
     def test_unconfigured_and_outside_directory_are_rejected(self):
         with tempfile.TemporaryDirectory() as approved, tempfile.TemporaryDirectory() as outside:
             file = Path(outside) / "private.csv"

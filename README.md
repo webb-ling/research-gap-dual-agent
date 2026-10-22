@@ -27,7 +27,7 @@
 | `check_model_plan` | 检查方案字段、变量类型与少量显见矛盾 | 不运行回归，也不证明模型有效 |
 | `profile_csv_variables`、`count_group_cells` | 对授权 CSV 的选定列做缺失和分组计数 | 未加权，不返回个体记录；稀疏类别/单元格抑制 |
 
-检索工具返回查询日期、页码、数据库命中数及是否可能有下一页。`search_literature.status=both_sources_succeeded` 只表示两次接口请求成功，`coverage_status=requested_page_only` 表示本次只覆盖指定页，并不表示检索完成。数据库命中数不是已筛读数；检索 Agent 应记录自己实际筛读的数量，跨查询与跨页再去重。若同题同年有多个不同 DOI，无 DOI 记录会保留并标记歧义，不自动并入第一篇。作者列表不截断；Crossref 缺少发表年份时返回空值并提示核验，不用元数据创建年份冒充发表年份。两库书目必须再与出版商页面或论文原文对照。参见[环节 1 交接结构](skills/research-gap-dual-agent/references/gap-evidence-schema.md)。
+检索工具返回查询日期、页码、数据库命中数及是否可能有下一页。`search_literature.status=both_sources_succeeded` 只表示两次接口请求成功，`coverage_status=requested_page_only` 表示本次只覆盖指定页，并不表示检索完成。数据库命中数不是已筛读数；检索 Agent 应记录自己实际筛读的数量，跨查询与跨页再去重。若同题同年有多个不同 DOI，无 DOI 记录会保留并标记歧义，不自动并入第一篇；同 DOI 的题名或年份冲突也会保留供人工核查。作者列表不截断，缺少标准姓名时尝试保留来源的原始姓名；Crossref 缺少发表年份时返回空值并提示核验，不用元数据创建年份冒充发表年份。两库书目必须再与出版商页面或论文原文对照。参见[环节 1 交接结构](skills/research-gap-dual-agent/references/gap-evidence-schema.md)。
 
 `check_model_plan` 对常见简单公式核对变量和交互项；复杂公式、别名和复杂抽样下替代标准误方法返回 `requires_manual_review`，明确的缺项返回 `needs_revision`。`ready_for_data_validation` 仅表示静态方案可继续核查，且始终标注 `data_validation_status=not_run`、`statistical_validity_status=not_assessed`。真正的回归估计、调查加权方差、模型诊断和独立结果复核需要数据及另外的统计软件，本仓库 MCP 尚未实现这些步骤。没有数据时只交付拟议模型，不编造样本量、系数或显著性。参见[环节 2 方案结构](skills/empirical-model-dual-agent/references/model-plan-schema.md)。
 
@@ -37,7 +37,7 @@
 2. 将仓库作为本地插件加入支持 Agent Plugins 的宿主。`plugin.json` 发现 `skills/`；`mcp.json` 通过 stdio 运行 `server/server.py`。若 `python` 不是已安装依赖的解释器，改用其绝对路径。
 3. 可单独复制 Skill 文件夹到 Codex 个人 Skills 目录，但此时须另行连接 MCP 或使用实际可用的网页/文件工具，并如实报告工具使用情况。
 
-需要 CSV 工具时，由使用者在启动 MCP **之前**设置 `RESEARCH_DATA_DIR` 为明确授权的数据目录；工具拒绝目录外文件和经符号链接跳出目录的路径。可设置 `RESEARCH_MIN_CELL_COUNT`（默认 5，范围 2—100）控制低频结果抑制。调用时只指定必要列，并依代码本传入逐列缺失码。输出的计数只用于建模前诊断；不要把它当作正式统计结果。未经授权目录配置，CSV 工具直接拒绝访问。
+需要 CSV 工具时，由使用者在启动 MCP **之前**设置 `RESEARCH_DATA_DIR` 为明确授权的数据目录；工具拒绝目录外文件和经符号链接跳出目录的路径。CSV 须为 UTF-8 编码且表头不重复；格式或字段数错误时停止统计。可设置 `RESEARCH_MIN_CELL_COUNT`（默认 5，范围 2—100）控制低频结果抑制。调用时只指定必要列，并依代码本传入逐列缺失码。输出的计数只用于建模前诊断；不要把它当作正式统计结果。低频抑制不等于敏感数据的正式披露控制。未经授权目录配置，CSV 工具直接拒绝访问。
 
 可选环境变量：`OPENALEX_API_KEY`、`CROSSREF_MAILTO`。不要将密钥或受限制微观数据提交到仓库。
 

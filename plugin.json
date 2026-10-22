@@ -1,7 +1,7 @@
 {
   "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
   "name": "research-model-writing-pipeline",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "description": "Three-stage empirical research workflow: literature gap, regression model review, and model-section writing.",
   "repository": "https://github.com/webb-ling/research-model-writing-pipeline",
   "license": "MIT",

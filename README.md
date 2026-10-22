@@ -1,60 +1,62 @@
 # Research Model Writing Pipeline
 
-**实证研究模型建立与论文写作：总 Skill + 三个环节 Skill**
+**实证研究模型建立与论文写作：一个总 Skill、三个环节 Skill、一组只读 MCP 工具。**
 
-**从这里开始：[总 Skill（仓库根目录 SKILL.md）](SKILL.md)。** 这个文件说明三环节如何衔接。插件实际发现并加载的对应文件是 [skills/research-model-writing-pipeline/SKILL.md](skills/research-model-writing-pipeline/SKILL.md)。
+从[总 Skill](SKILL.md)开始，也可分别使用[环节 1：研究空白识别](skills/research-gap-dual-agent/SKILL.md)、[环节 2：模型建立与核验](skills/empirical-model-dual-agent/SKILL.md)、[环节 3：模型部分写作与审阅](skills/model-section-writing-review/SKILL.md)。插件发现的总 Skill 位于 `skills/research-model-writing-pipeline/`；根目录 `SKILL.md` 是仓库阅读入口。三个环节的角色是运行时任务分工，并非分别训练的模型。宿主不支持子 Agent 时可依次运行并保留独立记录。
 
-三个环节可以单独使用：[环节 1：研究空白识别](skills/research-gap-dual-agent/SKILL.md) · [环节 2：回归模型建立与检验](skills/empirical-model-dual-agent/SKILL.md) · [环节 3：模型部分写作与审阅](skills/model-section-writing-review/SKILL.md)。
+## 仓库结构
 
-这是课程报告配套的开源仓库。仓库根目录的 `SKILL.md` 是整体工作流入口；`skills/` 下分别放置三个环节的 Skill。总 Skill 负责交接上一环节的证据与未确认事项；用户也可单独调用任一环节。
-
-## 结构
-
-| 路径 | 作用 |
+| 路径 | 内容 |
 | --- | --- |
-| `SKILL.md` | 仓库根目录的总 Skill：三环节路由、输入输出交接及证据边界 |
-| `skills/research-model-writing-pipeline/` | 供插件发现的总 Skill 版本 |
-| `skills/research-gap-dual-agent/` | 环节 1：文献检索 Agent 与独立来源核验 Agent |
-| `skills/empirical-model-dual-agent/` | 环节 2：建模 Agent 与独立模型检验 Agent；含动态提示词与工具输入说明 |
-| `skills/model-section-writing-review/` | 环节 3：写作、读者和编辑三种审阅角色 |
-| `server/server.py` | 本地只读 MCP 服务器；提供书目检索、DOI 核对和模型准备检查 |
-| `plugin.json`、`mcp.json` | 插件元数据及 stdio MCP 启动配置 |
-| `tests/` | MCP 工具和数据整理的单元测试 |
+| `SKILL.md`、`skills/research-model-writing-pipeline/` | 三环节路由与交接 |
+| `skills/research-gap-dual-agent/` | 检索 Agent、来源核验 Agent、研究空白交接记录 |
+| `skills/empirical-model-dual-agent/` | 建模 Agent、模型检验 Agent、结构化方案输入 |
+| `skills/model-section-writing-review/` | 写作、读者、编辑三种审阅角色 |
+| `server/core.py`、`server/server.py` | 纯逻辑与 stdio MCP 包装 |
+| `plugin.json`、`mcp.json` | 插件元数据和 MCP 启动配置 |
+| `tests/`、`.github/workflows/tests.yml` | 单元、权限边界和 MCP stdio 测试及 CI |
 
-两名或三名 Agent 是各 Skill 定义的运行时工作角色；本仓库没有训练或部署多个独立模型。是否并行创建子 Agent 取决于宿主环境；不支持时可按独立角色顺序运行。
+## MCP 的八项只读工具
 
-## MCP 工具
-
-| 环节 | 工具 | 用途与边界 |
+| 工具 | 功能 | 主要边界 |
 | --- | --- | --- |
-| 1 | `search_openalex`、`search_crossref`、`lookup_crossref_doi` | 检索书目元数据与核对 DOI；仍需查论文原文和出版商页面才能确认研究内容。 |
-| 2 | `check_model_plan` | 检查结构化模型方案是否缺字段或有显见矛盾；不能证明统计模型正确。 |
-| 2 | `profile_csv_variables`、`count_group_cells` | 仅在用户提供本地 CSV 时检查缺失、低类别变量和分组计数；不运行回归，也不返回个人记录。 |
+| `search_openalex`、`search_crossref` | 分页查询书目元数据 | 单次仅返回指定页，按需调整检索式与翻页 |
+| `search_literature` | 查询上述两库并对本次返回的结果按 DOI、题名与年份去重 | 不跨不同调用自动累计或证明检索穷尽 |
+| `lookup_crossref_doi` | 核对 DOI 书目元数据，可对比预期题名 | 不验证论文方法与结论；题名相似度只是提醒 |
+| `check_gap_evidence` | 检查研究空白交接记录的必要字段 | 不核实链接或创新性 |
+| `check_model_plan` | 检查方案字段、变量类型与少量显见矛盾 | 不运行回归，也不证明模型有效 |
+| `profile_csv_variables`、`count_group_cells` | 对授权 CSV 的选定列做缺失和分组计数 | 未加权，不返回个体记录；稀疏类别/单元格抑制 |
 
-六项工具均为只读。环节 2 的 CSV 计数是未加权描述统计，不能代替调查设计、正式模型估计或研究者对数据的解释。没有微观数据时，Skill 输出拟议模型和待核查清单，不会编造样本量、系数或显著性。
+检索工具返回查询日期、页码、数据库命中数及是否可能有下一页。数据库命中数不是已筛读数；检索 Agent 应记录自己实际筛读的数量，跨查询与跨页再去重。作者列表不截断；Crossref 缺少发表年份时返回空值并提示核验，不用元数据创建年份冒充发表年份。两库书目必须再与出版商页面或论文原文对照。参见[环节 1 交接结构](skills/research-gap-dual-agent/references/gap-evidence-schema.md)。
 
-## 本地安装
+`check_model_plan` 返回 `ready_for_data_validation` 表示静态方案可继续核查，且始终标注 `data_validation_status=not_run`、`statistical_validity_status=not_assessed`。真正的回归估计、调查加权方差、模型诊断和独立结果复核需要数据及另外的统计软件，本仓库 MCP 尚未实现这些步骤。没有数据时只交付拟议模型，不编造样本量、系数或显著性。参见[环节 2 方案结构](skills/empirical-model-dual-agent/references/model-plan-schema.md)。
 
-1. 克隆仓库，准备 Python 3.11 或更新版本，在启动 MCP 的同一 Python 环境执行 `python -m pip install -r requirements.txt`。
-2. 将仓库作为本地插件加入支持 Agent Plugins 的宿主。`plugin.json` 发现 `skills/`，`mcp.json` 使用 `python` 通过 stdio 启动 `server/server.py`。若宿主找不到该解释器，请把启动命令改为安装依赖的 Python 绝对路径。
-3. 也可将所需 Skill 的文件夹复制到 Codex 的个人 Skills 目录单独使用。此时应另行连接 MCP，或使用当前环境可用的网页与文件工具；实际交付须记录使用了哪些工具。
+## 安装与数据授权
 
-OpenAlex 可以配置环境变量 `OPENALEX_API_KEY`，Crossref 可以配置 `CROSSREF_MAILTO`。不要将密钥写入仓库。
+1. 准备 Python 3.11 或更新版本，在用于启动 MCP 的同一环境运行 `python -m pip install -r requirements.txt`。
+2. 将仓库作为本地插件加入支持 Agent Plugins 的宿主。`plugin.json` 发现 `skills/`；`mcp.json` 通过 stdio 运行 `server/server.py`。若 `python` 不是已安装依赖的解释器，改用其绝对路径。
+3. 可单独复制 Skill 文件夹到 Codex 个人 Skills 目录，但此时须另行连接 MCP 或使用实际可用的网页/文件工具，并如实报告工具使用情况。
 
-## 使用示例
+需要 CSV 工具时，由使用者在启动 MCP **之前**设置 `RESEARCH_DATA_DIR` 为明确授权的数据目录；工具拒绝目录外文件和经符号链接跳出目录的路径。可设置 `RESEARCH_MIN_CELL_COUNT`（默认 5，范围 2—100）控制低频结果抑制。调用时只指定必要列，并依代码本传入逐列缺失码。输出的计数只用于建模前诊断；不要把它当作正式统计结果。未经授权目录配置，CSV 工具直接拒绝访问。
+
+可选环境变量：`OPENALEX_API_KEY`、`CROSSREF_MAILTO`。不要将密钥或受限制微观数据提交到仓库。
+
+## 使用与验证
 
 ```text
 $research-model-writing-pipeline
-我想用公开数据研究城市绿地与居民健康。请先寻找候选研究空白，再检查我提出的回归模型；第三环节等我写出方法初稿后再运行。
+我想用公开数据研究城市绿地与居民健康。请先找候选研究空白，
+再检查我的回归初稿；论文模型部分等我写出初稿后再运行。
 ```
 
-也可单独调用 `$research-gap-dual-agent`、`$empirical-model-dual-agent` 或 `$model-section-writing-review`。每环节都应保存原始输入、修改依据、实际使用工具和未解决的问题。
+每环节保留原始输入、具体修改依据、实际工具、无法确认的事项与下一环节交接。运行测试：
 
-## 验证与资料来源
+```text
+python -m pip install -r requirements.txt
+python -m unittest discover -s tests -v
+```
 
-安装依赖后可运行 `python -m unittest discover -s tests`。测试覆盖书目元数据整理、DOI 核对、CSV 检查、模型方案字段检查与 MCP 工具注册。Crossref 检索和 DOI 查询曾完成真实 API 请求；OpenAlex 在当前执行环境出现 TLS 连接超时，因此其在线请求仍需在可访问的网络环境复核。
+测试包含书目整理、分页参数、去重、DOI 题名提示、CSV 目录限制与稀疏计数、方案检查，以及通过 `mcp.json` 启动并调用 stdio MCP 的集成用例。在线检索 API 是否可达取决于运行环境；本地单元测试用模拟响应，不证明网络检索在每个环境都成功。
 
-- [OpenAlex API 文档](https://help.openalex.org/api/)
-- [Crossref REST API 文档](https://www.crossref.org/documentation/retrieve-metadata/rest-api/)
-- 本项目代码采用 [MIT License](LICENSE)。
+API 依据：[OpenAlex 分页](https://help.openalex.org/api/paging/)、[Crossref REST API](https://www.crossref.org/documentation/retrieve-metadata/rest-api/)、[MCP Python SDK](https://github.com/modelcontextprotocol/python-sdk)。代码采用 [MIT License](LICENSE)。
 

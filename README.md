@@ -1,16 +1,19 @@
-# 实证研究模型建立与写作三环节 Skill
+# Research Model Writing Pipeline
+
+**实证研究模型建立与论文写作：总 Skill + 三个环节 Skill**
 
 **从这里开始：[总 Skill（仓库根目录 SKILL.md）](SKILL.md)。** 这个文件说明三环节如何衔接。插件实际发现并加载的对应文件是 [skills/research-model-writing-pipeline/SKILL.md](skills/research-model-writing-pipeline/SKILL.md)。
 
 三个环节可以单独使用：[环节 1：研究空白识别](skills/research-gap-dual-agent/SKILL.md) · [环节 2：回归模型建立与检验](skills/empirical-model-dual-agent/SKILL.md) · [环节 3：模型部分写作与审阅](skills/model-section-writing-review/SKILL.md)。
 
-这是课程报告配套的开源仓库。仓库名沿用最初的第一环节项目名，现已扩展为一个总 Skill 和三个环节 Skill：文献检索与研究空白识别、回归模型建立与独立核验、模型建立部分写作与审阅。总 Skill 负责交接上一环节的证据与未确认事项；用户也可单独调用任一环节。
+这是课程报告配套的开源仓库。仓库根目录的 `SKILL.md` 是整体工作流入口；`skills/` 下分别放置三个环节的 Skill。总 Skill 负责交接上一环节的证据与未确认事项；用户也可单独调用任一环节。
 
 ## 结构
 
 | 路径 | 作用 |
 | --- | --- |
-| `skills/research-model-writing-pipeline/` | 总 Skill：三环节路由、输入输出交接及证据边界 |
+| `SKILL.md` | 仓库根目录的总 Skill：三环节路由、输入输出交接及证据边界 |
+| `skills/research-model-writing-pipeline/` | 供插件发现的总 Skill 版本 |
 | `skills/research-gap-dual-agent/` | 环节 1：文献检索 Agent 与独立来源核验 Agent |
 | `skills/empirical-model-dual-agent/` | 环节 2：建模 Agent 与独立模型检验 Agent；含动态提示词与工具输入说明 |
 | `skills/model-section-writing-review/` | 环节 3：写作、读者和编辑三种审阅角色 |

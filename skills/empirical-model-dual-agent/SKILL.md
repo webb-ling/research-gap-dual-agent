@@ -10,7 +10,7 @@ description: 组织建模与独立模型检验两个 Agent，将研究者的初�
 ## 建模与独立审查
 
 1. 建模 Agent 核对数据说明、问卷跳题、变量含义和时间覆盖，提出分析单位、样本筛选、结局与解释变量编码、交互、控制变量、固定效应、缺失处理、估计目标、标准误、权重和稳健性方案。写出公式并定义符号。选择须由研究问题和数据结构支持。
-2. 可用 `check_model_plan` 对照[方案结构](references/model-plan-schema.md)检查缺项和显见矛盾。返回 `ready_for_data_validation` 仅表示方案具备继续做数据核查的字段；`data_validation_status=not_run`、`statistical_validity_status=not_assessed` 不能改写为“模型已验证”。
+2. 可用 `check_model_plan` 对照[方案结构](references/model-plan-schema.md)检查缺项和显见矛盾。返回 `ready_for_data_validation` 仅表示简单公式与必填字段通过静态核查；`requires_manual_review` 表示公式或抽样推断仍需独立复核；`data_validation_status=not_run`、`statistical_validity_status=not_assessed` 不能改写为“模型已验证”。
 3. 检验 Agent 独立对照官方资料挑错，特别审查样本可比性、变量编码、混杂、模型族与结局类型、交互项解释、调查设计、标准误、识别假设和反例。按“问题—证据—影响—建议”输出，不直接修改建模稿。
 4. 主 Agent 把意见逐条交给建模 Agent。建模 Agent 标注“采纳／不采纳／待数据验证”并说明理由；检验 Agent 复核关键修改。不能仅靠 `check_model_plan` 的通过状态结束审查。
 

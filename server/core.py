@@ -11,12 +11,12 @@ from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
 from urllib.error import HTTPError, URLError
-from urllib.parse import quote, urlencode
+from urllib.parse import quote, urlencode, urlsplit
 from urllib.request import Request, urlopen
 
 
 USER_AGENT = (
-    "research-model-writing-pipeline/2.1 "
+    "research-model-writing-pipeline/2.2 "
     "(scholarly metadata; https://github.com/webb-ling/research-model-writing-pipeline)"
 )
 MAX_SEARCH_WINDOW = 10_000
@@ -154,7 +154,7 @@ def search_crossref_data(query: str, limit: int = 10, page: int = 1) -> dict:
 
 
 def _normalized_doi(doi: str | None) -> str:
-    return re.sub(r"^(?:https?://(?:dx\.)?doi\.org/|doi:)", "", doi or "", flags=re.I).strip().lower()
+    return re.sub(r"^(?:https?://(?:dx\.)?doi\.org/|doi:)", "", (doi or "").strip(), flags=re.I).strip().lower()
 
 
 def _normalized_title(title: str | None) -> str:
@@ -162,37 +162,54 @@ def _normalized_title(title: str | None) -> str:
 
 
 def deduplicate_works(records: list[dict]) -> list[dict]:
-    """Merge exact DOI matches; use normalized title+year when a DOI is missing."""
+    """Merge exact DOIs; attach a DOI-less record only to one unambiguous DOI."""
     merged: list[dict] = []
     doi_index: dict[str, int] = {}
-    title_index: dict[tuple[str, int], list[int]] = {}
+    no_doi: list[dict] = []
+
+    def merge_into(index: int, record: dict) -> None:
+        existing = merged[index]
+        for source in record.pop("sources", []):
+            if source not in existing["sources"]:
+                existing["sources"].append(source)
+        for key, value in record.items():
+            if existing.get(key) is None and value is not None:
+                existing[key] = value
+
     for original in records:
         record = dict(original)
         source = record.pop("_source", None)
+        record["sources"] = [source] if source else []
         doi = _normalized_doi(record.get("doi"))
-        title_key = (_normalized_title(record.get("title")), record.get("year"))
-        index = doi_index.get(doi) if doi else None
-        if index is None and title_key[0] and type(title_key[1]) is int:
-            for candidate in title_index.get(title_key, []):
-                existing_doi = _normalized_doi(merged[candidate].get("doi"))
-                if not doi or not existing_doi or doi == existing_doi:
-                    index = candidate
-                    break
-        if index is None:
-            record["sources"] = [source] if source else []
-            index = len(merged)
-            merged.append(record)
-        else:
-            existing = merged[index]
-            if source and source not in existing["sources"]:
-                existing["sources"].append(source)
-            for key, value in record.items():
-                if existing.get(key) is None and value is not None:
-                    existing[key] = value
         if doi:
-            doi_index[doi] = index
+            if doi in doi_index:
+                merge_into(doi_index[doi], record)
+            else:
+                doi_index[doi] = len(merged)
+                record["deduplication_status"] = "exact_doi_or_unique_record"
+                merged.append(record)
+        else:
+            no_doi.append(record)
+
+    title_index: dict[tuple[str, int], list[int]] = {}
+    for index, record in enumerate(merged):
+        title_key = (_normalized_title(record.get("title")), record.get("year"))
         if title_key[0] and type(title_key[1]) is int:
             title_index.setdefault(title_key, []).append(index)
+
+    for record in no_doi:
+        title_key = (_normalized_title(record.get("title")), record.get("year"))
+        candidates = title_index.get(title_key, []) if title_key[0] and type(title_key[1]) is int else []
+        if len(candidates) == 1:
+            merge_into(candidates[0], record)
+            merged[candidates[0]]["deduplication_status"] = "title_year_single_doi_needs_review"
+        else:
+            record["deduplication_status"] = (
+                "ambiguous_title_year_needs_review" if len(candidates) > 1 else "no_doi_needs_review"
+            )
+            if len(candidates) > 1:
+                record["candidate_dois"] = [merged[index]["doi"] for index in candidates]
+            merged.append(record)
     return merged
 
 
@@ -203,11 +220,15 @@ def search_literature_data(query: str, limit: int = 10, page: int = 1) -> dict:
     records = [dict(work, _source=name) for name, result in sources.items() if result.get("ok") for work in result["results"]]
     return {
         "ok": any(result.get("ok") for result in sources.values()),
-        "status": "complete" if all(result.get("ok") for result in sources.values()) else "partial_or_failed",
+        "status": "both_sources_succeeded" if all(result.get("ok") for result in sources.values()) else "partial_or_failed",
+        "coverage_status": "requested_page_only",
         "source_searches": {name: (result.get("search_log") if result.get("ok") else {"error": result.get("error")})
                             for name, result in sources.items()},
         "raw_returned_count": len(records),
         "deduplicated_count": len(merged := deduplicate_works(records)),
+        "ambiguous_deduplication_count": sum(
+            work.get("deduplication_status") == "ambiguous_title_year_needs_review" for work in merged
+        ),
         "results": merged,
         "note": "Only the requested page from each database was checked; total counts are not screened counts.",
     }
@@ -248,6 +269,16 @@ def _nonempty_text(value: object) -> bool:
     return isinstance(value, str) and bool(value.strip())
 
 
+def _public_source_url(value: object) -> bool:
+    if not _nonempty_text(value) or value != value.strip() or any(char.isspace() for char in value):
+        return False
+    try:
+        parsed = urlsplit(value)
+        return parsed.scheme in ("http", "https") and bool(parsed.hostname)
+    except ValueError:
+        return False
+
+
 def check_gap_evidence_data(gap_json: str) -> dict:
     """Validate a handoff record's shape, never the truth of its evidence."""
     if not isinstance(gap_json, str) or len(gap_json) > 100_000:
@@ -261,6 +292,7 @@ def check_gap_evidence_data(gap_json: str) -> dict:
     missing = [key for key in ("candidate_gap", "existing_coverage", "unresolved_part",
                                "data_feasibility", "evidence_boundary") if not _nonempty_text(gap.get(key))]
     invalid: list[str] = []
+    consistency: list[str] = []
     logs = gap.get("search_log")
     if not isinstance(logs, list) or not logs:
         missing.append("search_log")
@@ -272,9 +304,17 @@ def check_gap_evidence_data(gap_json: str) -> dict:
             for field in ("database", "query", "searched_at_utc"):
                 if not _nonempty_text(entry.get(field)):
                     invalid.append(f"search_log[{index}].{field} is required")
+            page = entry.get("page")
+            if type(page) is not int or page < 1:
+                invalid.append(f"search_log[{index}].page must be a positive integer")
+            returned = entry.get("returned_count")
+            if type(returned) is not int or returned < 0:
+                invalid.append(f"search_log[{index}].returned_count must be a nonnegative integer")
             screened = entry.get("screened_count")
             if type(screened) is not int or screened < 0:
                 invalid.append(f"search_log[{index}].screened_count must be a nonnegative integer")
+            elif type(returned) is int and returned >= 0 and screened > returned:
+                consistency.append(f"search_log[{index}].screened_count exceeds returned_count")
     studies = gap.get("closest_studies")
     if not isinstance(studies, list) or not studies:
         missing.append("closest_studies")
@@ -286,15 +326,22 @@ def check_gap_evidence_data(gap_json: str) -> dict:
             for field in ("title", "original_url", "covered_question", "remaining_difference"):
                 if not _nonempty_text(study.get(field)):
                     invalid.append(f"closest_studies[{index}].{field} is required")
+            if _nonempty_text(study.get("original_url")) and not _public_source_url(study["original_url"]):
+                invalid.append(f"closest_studies[{index}].original_url must be an http(s) URL")
             if study.get("verification_status") not in ("passed", "needs_revision", "unconfirmed"):
                 invalid.append(f"closest_studies[{index}].verification_status is invalid")
     if gap.get("verification_status") not in ("passed", "needs_revision", "unconfirmed"):
         invalid.append("verification_status is invalid")
+    elif gap["verification_status"] == "passed" and isinstance(studies, list) and any(
+        not isinstance(study, dict) or study.get("verification_status") != "passed" for study in studies
+    ):
+        consistency.append("overall verification_status=passed conflicts with a closest study not marked passed")
     return {
         "ok": True,
-        "status": "needs_revision" if missing or invalid else "required_fields_present",
+        "status": "needs_revision" if missing or invalid or consistency else "required_fields_present",
         "missing_fields": missing,
         "invalid_fields": invalid,
+        "consistency_issues": consistency,
         "evidence_verification_status": "not_assessed_by_tool",
         "note": "This only checks record structure; source links and research claims need independent review.",
     }
@@ -455,22 +502,103 @@ def count_group_cells_data(
 
 
 def _model_family(value: str) -> str | None:
-    family = value.strip().casefold()
+    family = re.sub(r"[\s_-]+", " ", value.strip().casefold())
     if family in ("ols", "linear", "linear regression"):
         return "ols"
-    if "logit" in family and "ordinal" not in family and "multinomial" not in family:
+    if family in ("ordinal logit", "ordered logit"):
+        return "ordinal_logit"
+    if family == "multinomial logit":
+        return "multinomial_logit"
+    if family in ("binary logit", "logit", "logistic regression"):
         return "logit"
-    if "probit" in family:
+    if family in ("ordinal probit", "ordered probit"):
+        return "ordinal_probit"
+    if family == "multinomial probit":
+        return "multinomial_probit"
+    if family in ("binary probit", "probit"):
         return "probit"
     if family == "poisson":
         return "poisson"
-    if family in ("negative binomial", "negative_binomial"):
+    if family == "negative binomial":
         return "negative_binomial"
-    if family in ("ordinal logit", "ordinal_logit"):
-        return "ordinal_logit"
-    if family in ("multinomial logit", "multinomial_logit"):
-        return "multinomial_logit"
     return "other" if family == "other" else None
+
+
+_FORMULA_NAME = r"[^\W\d]\w*"
+_SIMPLE_TERM = re.compile(rf"\s*({_FORMULA_NAME})(?:\s*([:*])\s*({_FORMULA_NAME}))?\s*\Z")
+
+
+def _simple_name(value: object) -> bool:
+    return _nonempty_text(value) and re.fullmatch(_FORMULA_NAME, value) is not None
+
+
+def _formula_checks(plan: dict, controls: object, fixed_effects: object) -> tuple[list[str], list[str]]:
+    """Check simple R/Patsy formulas; send unparsed notation to human review."""
+    formula = plan.get("model_formula")
+    outcome = plan.get("outcome")
+    exposure = plan.get("exposure")
+    moderator = plan.get("moderator")
+    if not _nonempty_text(formula) or not isinstance(outcome, dict):
+        return [], []
+    issues: list[str] = []
+    manual: list[str] = []
+    if formula.count("~") != 1:
+        if "=" in formula:
+            for declared, label in ((outcome.get("name"), "outcome"), (exposure, "exposure")):
+                if _simple_name(declared) and not re.search(
+                    rf"(?<!\w){re.escape(declared)}(?!\w)", formula, flags=re.I
+                ):
+                    issues.append(f"model_formula omits declared {label}")
+            if plan.get("interaction") is True and _simple_name(exposure) and _simple_name(moderator):
+                pair = (rf"(?<!\w){re.escape(exposure)}\s*[×*·:]\s*{re.escape(moderator)}(?!\w)|"
+                        rf"(?<!\w){re.escape(moderator)}\s*[×*·:]\s*{re.escape(exposure)}(?!\w)")
+                if not re.search(pair, formula, flags=re.I):
+                    manual.append("no explicit exposure-moderator product found in mathematical formula")
+        manual.append("model_formula uses mathematical or unsupported syntax; verify variables and interaction manually")
+        return issues, manual
+    left, right = (part.strip() for part in formula.split("~", 1))
+    if not _simple_name(left) or not right:
+        manual.append("model_formula outcome or right-hand side needs manual parsing")
+        return issues, manual
+    if _simple_name(outcome.get("name")):
+        if left.casefold() != outcome["name"].casefold():
+            issues.append("model_formula outcome does not match outcome.name")
+    else:
+        manual.append("outcome.name uses an alias or expression; verify model_formula manually")
+
+    variables: set[str] = set()
+    interactions: set[frozenset[str]] = set()
+    for term in right.split("+"):
+        if term.strip() in ("0", "1"):
+            continue
+        match = _SIMPLE_TERM.fullmatch(term)
+        if not match:
+            manual.append("model_formula has functions, aliases, subtraction or unsupported terms")
+            return issues, manual
+        first, operator, second = match.groups()
+        variables.add(first.casefold())
+        if operator:
+            variables.add(second.casefold())
+            interactions.add(frozenset((first.casefold(), second.casefold())))
+    if _simple_name(exposure):
+        if exposure.casefold() not in variables:
+            issues.append("model_formula omits declared exposure")
+    else:
+        manual.append("exposure uses an alias or expression; verify model_formula manually")
+    if plan.get("interaction") is True and _simple_name(moderator) and _simple_name(exposure):
+        if frozenset((exposure.casefold(), moderator.casefold())) not in interactions:
+            issues.append("interaction=true but model_formula omits the exposure-moderator interaction")
+    elif plan.get("interaction") is True:
+        manual.append("interaction variable aliases need manual formula review")
+    defined = {name.casefold() for name in (exposure, moderator) if _simple_name(name)}
+    for collection in (controls, fixed_effects):
+        if isinstance(collection, list):
+            defined.update(item["name"].casefold() for item in collection
+                           if isinstance(item, dict) and _simple_name(item.get("name")))
+    unknown = sorted(variables - defined)
+    if unknown:
+        manual.append("model_formula variables lack matching definitions: " + ", ".join(unknown))
+    return issues, manual
 
 
 def check_model_plan_data(plan_json: str) -> dict:
@@ -487,6 +615,7 @@ def check_model_plan_data(plan_json: str) -> dict:
     missing: list[str] = []
     invalid: list[str] = []
     issues: list[str] = []
+    manual_review: list[str] = []
     for field in (
         "research_question", "data_source", "sample", "exposure", "exposure_encoding",
         "model_family", "model_formula", "estimand", "interpretation_plan",
@@ -526,10 +655,10 @@ def check_model_plan_data(plan_json: str) -> dict:
         issues.append("binary Logit/Probit requires a binary outcome")
     if family in ("poisson", "negative_binomial") and outcome_type not in (None, "count", "rate"):
         issues.append("Poisson/negative binomial requires a count or rate outcome")
-    if family == "ordinal_logit" and outcome_type not in (None, "ordinal"):
-        issues.append("ordinal Logit requires an ordinal outcome")
-    if family == "multinomial_logit" and outcome_type not in (None, "nominal"):
-        issues.append("multinomial Logit requires a nominal outcome")
+    if family in ("ordinal_logit", "ordinal_probit") and outcome_type not in (None, "ordinal"):
+        issues.append("ordinal Logit/Probit requires an ordinal outcome")
+    if family in ("multinomial_logit", "multinomial_probit") and outcome_type not in (None, "nominal"):
+        issues.append("multinomial Logit/Probit requires a nominal outcome")
     if family == "ols" and outcome_type == "binary" and not _nonempty_text(plan.get("model_family_note")):
         issues.append("OLS with a binary outcome needs a linear-probability rationale")
 
@@ -584,6 +713,15 @@ def check_model_plan_data(plan_json: str) -> dict:
             missing.append("sampling_design.rationale")
         if isinstance(errors, dict) and errors.get("method") == "survey_design" and kind != "complex_survey":
             issues.append("survey-design standard errors require a complex-survey sampling design")
+        if kind == "complex_survey" and isinstance(errors, dict) and errors.get("method") in (
+            "iid", "heteroskedastic_robust", "clustered", "other"
+        ):
+            if not _nonempty_text(errors.get("design_compatibility_rationale")):
+                missing.append("standard_errors.design_compatibility_rationale")
+            else:
+                manual_review.append(
+                    "complex-survey variance method differs from survey_design; independently assess its rationale"
+                )
 
     interaction = plan.get("interaction", False)
     if not isinstance(interaction, bool):
@@ -599,6 +737,9 @@ def check_model_plan_data(plan_json: str) -> dict:
     elif plan["causal_claim"] and not _nonempty_text(plan.get("identification_assumptions")):
         missing.append("identification_assumptions")
 
+    formula_issues, formula_manual = _formula_checks(plan, controls, fixed_effects)
+    issues.extend(formula_issues)
+    manual_review.extend(formula_manual)
     ready = not (missing or invalid or issues)
     review_items = [
         "Check formula, coding, eligibility and skip logic against the data dictionary.",
@@ -608,12 +749,17 @@ def check_model_plan_data(plan_json: str) -> dict:
     if isinstance(design, dict) and design.get("kind") == "complex_survey":
         review_items.append("Verify weights, strata and clusters in the original survey documentation.")
     return {
-        "ok": True, "status": "ready_for_data_validation" if ready else "needs_revision",
+        "ok": True, "status": ("needs_revision" if not ready else
+                              "requires_manual_review" if manual_review else "ready_for_data_validation"),
         "required_fields_present": not missing,
-        "specification_consistency": "no_obvious_conflict" if not (invalid or issues) else "issues_found",
+        "specification_consistency": ("issues_found" if invalid or issues else
+                                      "requires_manual_review" if manual_review else "no_obvious_conflict"),
+        "formula_review_status": ("issues_found" if formula_issues else
+                                  "requires_manual_review" if formula_manual else "simple_formula_checked"),
         "data_validation_status": "not_run",
         "statistical_validity_status": "not_assessed",
         "missing_fields": missing, "invalid_fields": invalid, "consistency_issues": issues,
+        "manual_review_items": manual_review,
         "review_items": review_items,
         "note": "Static plan checks do not establish model correctness, fit, significance or causality.",
     }

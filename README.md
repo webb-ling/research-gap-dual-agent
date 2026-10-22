@@ -21,15 +21,15 @@
 | 工具 | 功能 | 主要边界 |
 | --- | --- | --- |
 | `search_openalex`、`search_crossref` | 分页查询书目元数据 | 单次仅返回指定页，按需调整检索式与翻页 |
-| `search_literature` | 查询上述两库并对本次返回的结果按 DOI、题名与年份去重 | 不跨不同调用自动累计或证明检索穷尽 |
+| `search_literature` | 查询上述两库并对本次返回的结果按 DOI、题名与年份谨慎去重 | 不跨不同调用自动累计或证明检索穷尽；歧义记录保留待核验 |
 | `lookup_crossref_doi` | 核对 DOI 书目元数据，可对比预期题名 | 不验证论文方法与结论；题名相似度只是提醒 |
 | `check_gap_evidence` | 检查研究空白交接记录的必要字段 | 不核实链接或创新性 |
 | `check_model_plan` | 检查方案字段、变量类型与少量显见矛盾 | 不运行回归，也不证明模型有效 |
 | `profile_csv_variables`、`count_group_cells` | 对授权 CSV 的选定列做缺失和分组计数 | 未加权，不返回个体记录；稀疏类别/单元格抑制 |
 
-检索工具返回查询日期、页码、数据库命中数及是否可能有下一页。数据库命中数不是已筛读数；检索 Agent 应记录自己实际筛读的数量，跨查询与跨页再去重。作者列表不截断；Crossref 缺少发表年份时返回空值并提示核验，不用元数据创建年份冒充发表年份。两库书目必须再与出版商页面或论文原文对照。参见[环节 1 交接结构](skills/research-gap-dual-agent/references/gap-evidence-schema.md)。
+检索工具返回查询日期、页码、数据库命中数及是否可能有下一页。`search_literature.status=both_sources_succeeded` 只表示两次接口请求成功，`coverage_status=requested_page_only` 表示本次只覆盖指定页，并不表示检索完成。数据库命中数不是已筛读数；检索 Agent 应记录自己实际筛读的数量，跨查询与跨页再去重。若同题同年有多个不同 DOI，无 DOI 记录会保留并标记歧义，不自动并入第一篇。作者列表不截断；Crossref 缺少发表年份时返回空值并提示核验，不用元数据创建年份冒充发表年份。两库书目必须再与出版商页面或论文原文对照。参见[环节 1 交接结构](skills/research-gap-dual-agent/references/gap-evidence-schema.md)。
 
-`check_model_plan` 返回 `ready_for_data_validation` 表示静态方案可继续核查，且始终标注 `data_validation_status=not_run`、`statistical_validity_status=not_assessed`。真正的回归估计、调查加权方差、模型诊断和独立结果复核需要数据及另外的统计软件，本仓库 MCP 尚未实现这些步骤。没有数据时只交付拟议模型，不编造样本量、系数或显著性。参见[环节 2 方案结构](skills/empirical-model-dual-agent/references/model-plan-schema.md)。
+`check_model_plan` 对常见简单公式核对变量和交互项；复杂公式、别名和复杂抽样下替代标准误方法返回 `requires_manual_review`，明确的缺项返回 `needs_revision`。`ready_for_data_validation` 仅表示静态方案可继续核查，且始终标注 `data_validation_status=not_run`、`statistical_validity_status=not_assessed`。真正的回归估计、调查加权方差、模型诊断和独立结果复核需要数据及另外的统计软件，本仓库 MCP 尚未实现这些步骤。没有数据时只交付拟议模型，不编造样本量、系数或显著性。参见[环节 2 方案结构](skills/empirical-model-dual-agent/references/model-plan-schema.md)。
 
 ## 安装与数据授权
 

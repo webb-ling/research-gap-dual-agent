@@ -23,12 +23,12 @@ def valid_plan() -> dict:
         "research_question": "Does the association differ by area?",
         "data_source": "official survey 2024", "sample": "eligible adults",
         "outcome": {"name": "payment", "type": "binary", "encoding": "yes=1, no=0"},
-        "exposure": "phone type", "exposure_encoding": "smart=1, basic=0",
-        "moderator": "rural residence", "interaction": True,
+        "exposure": "phone", "exposure_encoding": "smart=1, basic=0",
+        "moderator": "rural", "interaction": True,
         "model_family": "binary Logit", "model_formula": "payment ~ phone * rural + age",
         "controls": [{"name": "age", "rationale": "plausible common cause"}],
         "fixed_effects": [], "missing_data_plan": "complete cases, report exclusions",
-        "standard_errors": {"method": "clustered", "cluster_level": "survey cluster"},
+        "standard_errors": {"method": "survey_design"},
         "sampling_design": {"kind": "complex_survey", "weight_plan": "use person weight",
                             "variance_plan": "account for clusters and strata"},
         "estimand": "adjusted association", "interpretation_plan": "predicted probabilities",
@@ -78,6 +78,8 @@ class LiteratureTests(unittest.TestCase):
             result = core.search_literature_data("example")
         self.assertEqual(result["raw_returned_count"], 4)
         self.assertEqual(result["deduplicated_count"], 2)
+        self.assertEqual(result["status"], "both_sources_succeeded")
+        self.assertEqual(result["coverage_status"], "requested_page_only")
         self.assertEqual(result["results"][0]["sources"], ["OpenAlex", "Crossref"])
 
     def test_different_dois_with_same_title_remain_separate(self):
@@ -86,6 +88,21 @@ class LiteratureTests(unittest.TestCase):
             {"title": "Same Study", "year": 2024, "doi": "10.1234/b"},
         ]
         self.assertEqual(len(core.deduplicate_works(records)), 2)
+
+    def test_doi_less_title_year_with_two_dois_stays_ambiguous_in_any_order(self):
+        records = [
+            {"title": "Same Study", "year": 2025, "doi": "10.1234/a"},
+            {"title": "Same Study", "year": 2025, "doi": "10.1234/b"},
+            {"title": "Same Study", "year": 2025, "doi": None},
+        ]
+        for order in (records, list(reversed(records))):
+            with self.subTest(order=order):
+                merged = core.deduplicate_works(order)
+                self.assertEqual(len(merged), 3)
+                ambiguous = [item for item in merged if item.get("deduplication_status") ==
+                             "ambiguous_title_year_needs_review"]
+                self.assertEqual(len(ambiguous), 1)
+                self.assertEqual(set(ambiguous[0]["candidate_dois"]), {"10.1234/a", "10.1234/b"})
 
     def test_doi_mismatch_status_and_404_boundary(self):
         with patch.object(core, "_fetch_json", return_value={"message": {
@@ -100,11 +117,42 @@ class LiteratureTests(unittest.TestCase):
             result = core.lookup_crossref_doi_data("10.1234/x")
         self.assertEqual(result["status"], "not_found_in_crossref")
 
+    def test_doi_url_with_leading_space_is_normalized(self):
+        with patch.object(core, "_fetch_json", return_value={"message": {"DOI": "10.1234/x"}}) as fetch:
+            result = core.lookup_crossref_doi_data("  https://doi.org/10.1234/X  ")
+        self.assertTrue(result["ok"])
+        self.assertIn("10.1234%2Fx", fetch.call_args.args[0])
+
     def test_gap_evidence_requires_traceable_search_and_studies(self):
         result = core.check_gap_evidence_data(json.dumps({"candidate_gap": "a narrower question"}))
         self.assertEqual(result["status"], "needs_revision")
         self.assertIn("search_log", result["missing_fields"])
         self.assertEqual(result["evidence_verification_status"], "not_assessed_by_tool")
+
+    def test_gap_log_url_and_verification_consistency(self):
+        gap = {
+            "candidate_gap": "specific gap", "existing_coverage": "prior work",
+            "unresolved_part": "remaining comparison", "data_feasibility": "official data",
+            "evidence_boundary": "targeted search", "verification_status": "passed",
+            "search_log": [{"database": "OpenAlex", "query": "terms", "searched_at_utc": "2026-10-22",
+                            "screened_count": 2}],
+            "closest_studies": [{"title": "Study", "original_url": "not-a-url",
+                                 "covered_question": "A", "remaining_difference": "B",
+                                 "verification_status": "unconfirmed"}],
+        }
+        result = core.check_gap_evidence_data(json.dumps(gap))
+        self.assertEqual(result["status"], "needs_revision")
+        self.assertTrue(any("page" in item for item in result["invalid_fields"]))
+        self.assertTrue(any("returned_count" in item for item in result["invalid_fields"]))
+        self.assertTrue(any("original_url" in item for item in result["invalid_fields"]))
+        self.assertTrue(result["consistency_issues"])
+        gap["search_log"][0].update(page=1, returned_count=2)
+        gap["closest_studies"][0].update(original_url="https://doi.org/10.1234/x",
+                                         verification_status="passed")
+        self.assertEqual(core.check_gap_evidence_data(json.dumps(gap))["status"],
+                         "required_fields_present")
+        gap["search_log"][0]["screened_count"] = 3
+        self.assertTrue(core.check_gap_evidence_data(json.dumps(gap))["consistency_issues"])
 
 
 class ModelPlanTests(unittest.TestCase):
@@ -135,6 +183,56 @@ class ModelPlanTests(unittest.TestCase):
         self.assertIn("standard_errors.cluster_level", result["missing_fields"])
         self.assertIn("identification_assumptions", result["missing_fields"])
         self.assertIn("sampling_design.weight_plan", result["missing_fields"])
+
+    def test_formula_missing_interaction_and_declared_variables(self):
+        plan = valid_plan()
+        plan["model_formula"] = "wrong_outcome ~ rural + age"
+        result = core.check_model_plan_data(json.dumps(plan))
+        self.assertEqual(result["status"], "needs_revision")
+        self.assertTrue(any("outcome" in item for item in result["consistency_issues"]))
+        self.assertTrue(any("exposure" in item for item in result["consistency_issues"]))
+        self.assertTrue(any("interaction" in item for item in result["consistency_issues"]))
+
+    def test_complex_formula_and_undefined_variable_require_manual_review(self):
+        plan = valid_plan()
+        plan["model_formula"] = "payment ~ phone * rural + C(region)"
+        result = core.check_model_plan_data(json.dumps(plan))
+        self.assertEqual(result["status"], "requires_manual_review")
+        self.assertEqual(result["formula_review_status"], "requires_manual_review")
+        plan["model_formula"] = "payment ~ phone * rural + unlisted"
+        result = core.check_model_plan_data(json.dumps(plan))
+        self.assertEqual(result["status"], "requires_manual_review")
+        self.assertTrue(any("unlisted" in item for item in result["manual_review_items"]))
+        plan["model_formula"] = "logit P(payment=1)=a+b1 phone+b2 rural+b3 phone×rural"
+        self.assertEqual(core.check_model_plan_data(json.dumps(plan))["status"],
+                         "requires_manual_review")
+        plan["model_formula"] = "logit P(payment=1)=a+b1 rural"
+        result = core.check_model_plan_data(json.dumps(plan))
+        self.assertTrue(any("exposure" in item for item in result["consistency_issues"]))
+
+    def test_ordered_and_multinomial_probit_are_not_binary_probit(self):
+        plan = valid_plan()
+        plan["outcome"]["type"] = "ordinal"
+        plan["model_family"] = "ordered probit"
+        self.assertEqual(core.check_model_plan_data(json.dumps(plan))["status"],
+                         "ready_for_data_validation")
+        plan["outcome"]["type"] = "nominal"
+        plan["model_family"] = "multinomial probit"
+        self.assertEqual(core.check_model_plan_data(json.dumps(plan))["status"],
+                         "ready_for_data_validation")
+        plan["model_family"] = "binary probit"
+        self.assertEqual(core.check_model_plan_data(json.dumps(plan))["status"], "needs_revision")
+
+    def test_complex_survey_other_variance_needs_rationale_and_review(self):
+        plan = valid_plan()
+        plan["standard_errors"] = {"method": "iid"}
+        result = core.check_model_plan_data(json.dumps(plan))
+        self.assertEqual(result["status"], "needs_revision")
+        self.assertIn("standard_errors.design_compatibility_rationale", result["missing_fields"])
+        plan["standard_errors"]["design_compatibility_rationale"] = "specific design argument"
+        result = core.check_model_plan_data(json.dumps(plan))
+        self.assertEqual(result["status"], "requires_manual_review")
+        self.assertTrue(result["manual_review_items"])
 
 
 class CsvBoundaryTests(unittest.TestCase):

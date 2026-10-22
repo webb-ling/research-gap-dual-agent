@@ -1,6 +1,6 @@
 # 研究空白交接记录
 
-`check_gap_evidence(gap_json)` 接受 JSON 字符串，只检查字段和状态值，不验证论文、链接或创新性。交给第二环节时保留以下字段；`screened_count` 是研究者实际看过的条目数，不能填数据库命中总数。
+`check_gap_evidence(gap_json)` 接受 JSON 字符串，只检查字段、基本 URL 格式和状态一致性，不访问链接，也不验证论文或创新性。交给第二环节时保留以下字段；`screened_count` 是研究者实际看过的条目数，不能填数据库命中总数，且不能超过本次 `returned_count`。
 
 ```json
 {
@@ -32,5 +32,5 @@
 }
 ```
 
-`verification_status` 可填 `passed`、`needs_revision` 或 `unconfirmed`。只有核验 Agent 实际打开并核对原始材料后，才可将该研究标为 `passed`。工具返回 `required_fields_present` 仅代表结构完整，绝不代表证据已通过核验。
+`search_log` 的 `page` 必须是正整数，`returned_count` 和 `screened_count` 必须是非负整数。`original_url` 必须是带主机名的 `http(s)` URL。`verification_status` 可填 `passed`、`needs_revision` 或 `unconfirmed`；总体标为 `passed` 时，所有最接近研究都须标为 `passed`，否则返回一致性问题。只有核验 Agent 实际打开并核对原始材料后，才可将该研究标为 `passed`。工具返回 `required_fields_present` 仅代表结构完整，绝不代表证据已通过核验。
 

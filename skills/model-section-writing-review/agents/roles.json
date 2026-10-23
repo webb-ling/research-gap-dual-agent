@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "entrypoint": "SKILL.md",
+  "shared_references": ["references/agent-work-plan.md"],
+  "roles": {
+    "A": {"instruction": "references/roles/material-checker.md", "references": ["references/information-checklist.md", "references/material-request-format.md"]},
+    "W1": {"instruction": "references/roles/paragraph-planner.md", "references": ["references/information-checklist.md", "references/writing-framework.md"]},
+    "W2": {"instruction": "references/roles/section-writer.md", "references": ["references/information-checklist.md", "references/writing-framework.md"]},
+    "W3": {"instruction": "references/roles/coherence-editor.md", "references": ["references/information-checklist.md", "references/writing-framework.md"]},
+    "W": {"instruction": "references/roles/lead-writer.md", "references": ["references/information-checklist.md", "references/writing-framework.md", "references/review-criteria.md"]},
+    "R": {"instruction": "references/roles/reviewer.md", "references": ["references/information-checklist.md", "references/writing-framework.md", "references/review-criteria.md"]}
+  }
+}

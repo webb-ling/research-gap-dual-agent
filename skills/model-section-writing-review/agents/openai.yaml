@@ -1,5 +1,5 @@
 interface:
   display_name: "模型建立部分写作与审阅"
-  short_description: "写作、读者和编辑三视角修订模型部分"
-  default_prompt: "Use $model-section-writing-review to revise my model-building section using the confirmed model."
+  short_description: "检查作者模型素材并按标准组织文稿，通过写作与独立审核循环完成模型章节"
+  default_prompt: "Use $model-section-writing-review to check my model draft, request only missing model information, and write and review a concise model setup section."
 

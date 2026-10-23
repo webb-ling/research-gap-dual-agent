@@ -11,7 +11,7 @@ description: 将公开数据实证研究的文献检索与研究空白识别、�
 
 1. **识别研究空白**：阅读 [research-gap-dual-agent](../research-gap-dual-agent/SKILL.md)。输入研究方向和约束；交接候选空白、最接近文献、检索日志、独立核验状态、数据线索及未确认事项。
 2. **建立并检验模型**：阅读 [empirical-model-dual-agent](../empirical-model-dual-agent/SKILL.md)。输入研究问题、候选空白、原始数据文档和使用者的初步模型；交接修订后的拟议模型、变量定义、分析样本、估计目标、识别与解释限制、待数据检查项。
-3. **写作模型建立部分**：阅读 [model-section-writing-review](../model-section-writing-review/SKILL.md)。输入已确认的模型和使用者初稿；交接修订文字、读者与编辑意见及尚需证据的表述。
+3. **写作模型建立部分**：阅读 [model-section-writing-review](../model-section-writing-review/SKILL.md)。输入用户确认的模型草稿；先检查模型信息并按需请求补充，再组织写作和独立审核循环，交接正文与可追溯修改记录。数据处理暂不默认纳入。
 
 若从中途开始，先检查前一环节的必要输入；缺失时列出具体缺口，可继续处理不依赖该缺口的部分。每次交接标明哪些事实来自论文或官方数据文档，哪些是建模选择，哪些仍是待验证设想。
 

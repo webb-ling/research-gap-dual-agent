@@ -11,7 +11,7 @@
 | `SKILL.md`、`skills/research-model-writing-pipeline/` | 三环节路由与交接 |
 | `skills/research-gap-dual-agent/` | 检索 Agent、来源核验 Agent、研究空白交接记录 |
 | `skills/empirical-model-dual-agent/` | 建模 Agent、模型检验 Agent、结构化方案输入 |
-| `skills/model-section-writing-review/` | 写作、读者、编辑三种审阅角色 |
+| `skills/model-section-writing-review/` | 素材检查、分段写作、独立审核与 Python 调度 |
 | `server/core.py`、`server/server.py` | 纯逻辑与 stdio MCP 包装 |
 | `plugin.json`、`mcp.json` | 插件元数据和 MCP 启动配置 |
 | `tests/`、`.github/workflows/tests.yml` | 单元、权限边界和 MCP stdio 测试及 CI |
@@ -60,3 +60,16 @@ python -m unittest discover -s tests -v
 
 API 依据：[OpenAlex 分页](https://help.openalex.org/api/paging/)、[Crossref REST API](https://www.crossref.org/documentation/retrieve-metadata/rest-api/)、[MCP Python SDK](https://github.com/modelcontextprotocol/python-sdk)。代码采用 [MIT License](LICENSE)。
 
+
+## 第三环节的写作规范与调度
+
+[模型章节 Skill](skills/model-section-writing-review/SKILL.md)统一组织信息检查表、文稿框架、素材请求格式和Agent工作安排。SDK通过[角色路由](skills/model-section-writing-review/agents/roles.json)把所需规范正文直接注入每次调用，不依赖自动发现。
+
+以[14项信息 checklist](skills/model-section-writing-review/references/information-checklist.md)贯穿素材检查、段落规划和成稿审核。[文稿框架v2](skills/model-section-writing-review/references/writing-framework.md)对单一主方程模型优先采用三个文字段落加公式，在保留必要定义、尺度和比较基准的同时合并重复说明；具体数据处理和实际结果不默认展开。
+
+```text
+python skills/model-section-writing-review/scripts/workflow.py --explain-role A
+python skills/model-section-writing-review/tests/test_workflow.py
+```
+
+这些检查不发出在线推理请求。SDK适配的真实运行前提及未接入内容见[运行说明](skills/model-section-writing-review/references/runtime.md)。
